@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  --color-canvas: #10151a;
+  --color-panel: #161c22;
+  --color-hairline: #2a333b;
+  --color-ink: #edefef;
+  --color-ink-muted: #8b95a1;
+  --color-signal: #4fd8c4;
+  --color-signal-dim: #2b6d64;
+  --color-error: #e2725b;
+}
+
+@theme inline {
+  --color-canvas: var(--color-canvas);
+  --color-panel: var(--color-panel);
+  --color-hairline: var(--color-hairline);
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-signal: var(--color-signal);
+  --color-signal-dim: var(--color-signal-dim);
+  --color-error: var(--color-error);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-display), system-ui, sans-serif;
+}
+
+@keyframes signal-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-signal) 55%, transparent);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-signal) 0%, transparent);
+  }
+}
+
+.signal-pulse {
+  animation: signal-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-pulse {
+    animation: none;
+  }
+}
