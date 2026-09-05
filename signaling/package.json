@@ -1,0 +1,23 @@
+{
+  "name": "rap-signaling",
+  "version": "0.1.0",
+  "description": "Signaling server for the browser-based remote access platform (Phase 1)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test:harness": "node test/run-harness.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
