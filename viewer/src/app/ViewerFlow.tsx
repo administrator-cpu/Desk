@@ -31,8 +31,15 @@ export default function ViewerFlow() {
     function onError(payload: { error: string }) {
       if (payload.error === "invalid_code" || payload.error === "rate_limited" || payload.error === "code_expired") {
         setError(payload.error);
+        setNotice(null);
+      } else {
+        setError(null);
+        setNotice(
+          payload.error === "turn_unavailable"
+            ? "The connection service is temporarily unavailable — try again."
+            : `Couldn't complete the connection (${payload.error}).`
+        );
       }
-      setNotice(null);
       closePeerConnection();
       setScreen("A1");
     }
@@ -90,9 +97,10 @@ export default function ViewerFlow() {
     }
 
     function createPeerConnection(turnCredentials: TurnCredentials) {
-      const pc = new RTCPeerConnection(buildRtcConfig(turnCredentials));
+      const forceRelay = process.env.NEXT_PUBLIC_FORCE_RELAY === "true";
+      const pc = new RTCPeerConnection(buildRtcConfig(turnCredentials, { forceRelay }));
       pcRef.current = pc;
-      console.log("[viewer] RTCPeerConnection created");
+      console.log("[viewer] RTCPeerConnection created", forceRelay ? "(forced relay)" : "");
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
@@ -177,6 +185,11 @@ export default function ViewerFlow() {
           <h1 className="font-display text-4xl font-medium leading-tight text-ink">
             Connect to a host
           </h1>
+          {process.env.NEXT_PUBLIC_FORCE_RELAY === "true" && (
+            <p className="mt-3 text-sm text-error">
+              Forced TURN relay is ON — direct P2P is disabled for this test (step 2.10).
+            </p>
+          )}
           <p className="mt-4 text-[15px] leading-relaxed text-ink-muted">
             Enter the 9-digit code shown on the machine you want to reach.
             Nothing installs on this side — the code opens a direct,

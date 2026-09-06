@@ -79,10 +79,12 @@ export default function App() {
     // own RTCPeerConnection with valid TURN credentials, same as the viewer
     // gets via host:accepted.
     function onAcceptAck(payload: { turnCredentials: TurnCredentials }) {
+      console.log("[sender] host:accept-ack received, starting WebRTC setup");
       void createOfferAndSend(payload.turnCredentials);
     }
 
     function onAnswer(payload: SdpPayload) {
+      console.log("[sender] received answer");
       const pc = pcRef.current;
       if (!pc) return;
       void pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
@@ -155,30 +157,43 @@ export default function App() {
     const stream = streamRef.current;
     if (!stream) return; // shouldn't happen — capture always precedes accept
 
-    const pc = new RTCPeerConnection(buildRtcConfig(turnCredentials));
-    pcRef.current = pc;
+    try {
+      const forceRelay = import.meta.env.VITE_FORCE_RELAY === "true";
+      const pc = new RTCPeerConnection(buildRtcConfig(turnCredentials, { forceRelay }));
+      pcRef.current = pc;
+      console.log("[sender] RTCPeerConnection created", forceRelay ? "(forced relay)" : "");
 
-    for (const track of stream.getTracks()) {
-      pc.addTrack(track, stream);
+      for (const track of stream.getTracks()) {
+        pc.addTrack(track, stream);
+      }
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log("[sender] sending ICE candidate");
+          getSocket().emit("signal:ice-candidate", { candidate: event.candidate.toJSON() });
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        console.log("[sender] connectionState ->", pc.connectionState);
+        setConnectionState(pc.connectionState);
+        if (pc.connectionState === "failed") {
+          setErrorMsg("Couldn't establish a connection to the viewer.");
+        }
+      };
+      pc.oniceconnectionstatechange = () => {
+        console.log("[sender] iceConnectionState ->", pc.iceConnectionState);
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      console.log("[sender] sending offer");
+      // Sent as a plain object matching Backend Schema §4's sdp shape —
+      // RTCSessionDescription's own fields aren't reliably JSON-serializable.
+      getSocket().emit("signal:offer", { sdp: { type: offer.type, sdp: offer.sdp ?? "" } });
+    } catch (err) {
+      console.error("[sender] WebRTC setup failed:", err);
+      setErrorMsg(`Couldn't set up the connection: ${err instanceof Error ? err.message : String(err)}`);
     }
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        getSocket().emit("signal:ice-candidate", { candidate: event.candidate.toJSON() });
-      }
-    };
-    pc.onconnectionstatechange = () => {
-      setConnectionState(pc.connectionState);
-      if (pc.connectionState === "failed") {
-        setErrorMsg("Couldn't establish a connection to the viewer.");
-      }
-    };
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    // Sent as a plain object matching Backend Schema §4's sdp shape —
-    // RTCSessionDescription's own fields aren't reliably JSON-serializable.
-    getSocket().emit("signal:offer", { sdp: { type: offer.type, sdp: offer.sdp ?? "" } });
   }
 
   async function handleAccept() {
@@ -222,6 +237,12 @@ export default function App() {
       <h1 style={{ fontSize: 22, fontWeight: 500, margin: "0 0 24px" }}>
         Host session
       </h1>
+
+      {import.meta.env.VITE_FORCE_RELAY === "true" && (
+        <p style={{ color: "#e2725b", fontSize: 13, margin: "-16px 0 24px" }}>
+          Forced TURN relay is ON — direct P2P is disabled for this test (step 2.10).
+        </p>
+      )}
 
       {!code && !capturing && <p>Requesting a code…</p>}
 

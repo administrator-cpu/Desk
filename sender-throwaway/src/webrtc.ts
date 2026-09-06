@@ -5,12 +5,10 @@ export type TurnCredentials = {
   ttl: number;
 };
 
-/**
- * Builds the ICE server config both peers use (TRD §3.1). STUN alone is
- * enough on the same network but fails for the platform's actual target
- * scenario (PRD §5.1) — TURN must always be included, not added later.
- */
-export function buildRtcConfig(turnCredentials: TurnCredentials): RTCConfiguration {
+export function buildRtcConfig(
+  turnCredentials: TurnCredentials,
+  options?: { forceRelay?: boolean }
+): RTCConfiguration {
   return {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
@@ -20,6 +18,6 @@ export function buildRtcConfig(turnCredentials: TurnCredentials): RTCConfigurati
         credential: turnCredentials.credential,
       },
     ],
-    iceTransportPolicy: "all", // switch to "relay" only for forced-TURN debugging (step 2.10)
+    iceTransportPolicy: options?.forceRelay ? "relay" : "all",
   };
 }

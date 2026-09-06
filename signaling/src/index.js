@@ -111,7 +111,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("host:accept", (payload) => {
+  socket.on("host:accept", async (payload) => {
     const data = parseOrReject(socket, "host:accept", payload);
     if (!data) return;
 
@@ -127,15 +127,27 @@ io.on("connection", (socket) => {
     try {
       const { viewerSocketId } = rooms.accept(room.code, socket.id);
       pairSockets(socket.id, viewerSocketId);
-      // Both peers configure ICE independently against coturn's shared
-      // secret, so each can be issued its own credential — they don't need
-      // to be identical, just each independently valid. The event contract
-      // (TRD §2.2/Backend Schema §4) only specifies host:accepted carrying
-      // credentials to the *viewer*; the host needs the same thing to build
-      // its own RTCPeerConnection, so it gets an equivalent ack here.
-      const turnCredentials = issueTurnCredentials({ sessionId: `${room.code}-${Date.now()}` });
-      io.to(viewerSocketId).emit("host:accepted", { turnCredentials });
-      socket.emit("host:accept-ack", { turnCredentials });
+      // Both peers configure ICE independently against the TURN
+      // provider/secret, so each can be issued its own credential — they
+      // don't need to be identical, just each independently valid. The
+      // event contract (TRD §2.2/Backend Schema §4) only specifies
+      // host:accepted carrying credentials to the *viewer*; the host needs
+      // the same thing to build its own RTCPeerConnection, so it gets an
+      // equivalent ack here.
+      try {
+        const turnCredentials = await issueTurnCredentials({ sessionId: `${room.code}-${Date.now()}` });
+        io.to(viewerSocketId).emit("host:accepted", { turnCredentials });
+        socket.emit("host:accept-ack", { turnCredentials });
+      } catch (turnErr) {
+        // The room is already committed/deleted at this point (single-use
+        // invalidation already happened) — a TURN provider outage shouldn't
+        // silently hang either side, so both get an explicit error and have
+        // to re-pair with a fresh code.
+        console.error("TURN credential issuance failed:", turnErr);
+        io.to(viewerSocketId).emit("error", { error: "turn_unavailable" });
+        socket.emit("error", { error: "turn_unavailable" });
+        unpairSocket(socket.id);
+      }
     } catch (err) {
       if (err instanceof RoomError) {
         socket.emit("error", { error: err.code });

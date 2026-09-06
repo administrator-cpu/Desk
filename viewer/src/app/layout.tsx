@@ -24,7 +24,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${spaceGrotesk.variable} ${plexMono.variable} h-full`}
-      cz-shortcut-listen="true"
     >
       <body className="min-h-full">{children}</body>
     </html>
