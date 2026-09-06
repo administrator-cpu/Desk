@@ -24,6 +24,9 @@ export default function ViewerFlow() {
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const inputReliableRef = useRef<RTCDataChannel | null>(null);
+  const inputPointerRef = useRef<RTCDataChannel | null>(null);
+  const lastMoveSentRef = useRef(0);
 
   useEffect(() => {
     const socket = getSocket();
@@ -120,11 +123,27 @@ export default function ViewerFlow() {
         if (videoRef.current) videoRef.current.srcObject = event.streams[0];
         setHasRemoteStream(true);
       };
+      // Step 3.6: the host creates these as part of its offer; receive
+      // them here rather than creating our own. Not wired to real mouse/
+      // keyboard capture yet (3.7/3.8) — this step just proves both
+      // channels negotiate and open successfully from this side too.
+      pc.ondatachannel = (event) => {
+        const channel = event.channel;
+        if (channel.label === "input-reliable") {
+          inputReliableRef.current = channel;
+        } else if (channel.label === "input-pointer") {
+          inputPointerRef.current = channel;
+        }
+        channel.onopen = () => console.log(`[viewer] ${channel.label} channel open`);
+        channel.onclose = () => console.log(`[viewer] ${channel.label} channel closed`);
+      };
     }
 
     function closePeerConnection() {
       pcRef.current?.close();
       pcRef.current = null;
+      inputReliableRef.current = null;
+      inputPointerRef.current = null;
       setConnectionState(null);
       setHasRemoteStream(false);
       if (videoRef.current) videoRef.current.srcObject = null;
@@ -150,6 +169,12 @@ export default function ViewerFlow() {
     };
   }, []);
 
+  // Auto-focus once video is live, so keyboard input works immediately
+  // without an extra click first.
+  useEffect(() => {
+    if (hasRemoteStream) videoRef.current?.focus();
+  }, [hasRemoteStream]);
+
   function handleConnect() {
     const digitsOnly = code.replace(/\s/g, "");
     if (digitsOnly.length !== 9) {
@@ -174,6 +199,89 @@ export default function ViewerFlow() {
     getSocket().emit("viewer:cancel-request", {});
     setScreen("A1");
     setCode("");
+  }
+
+  // Step 3.7: mouse capture on the video element. Coordinates are
+  // normalized 0.0–1.0 (TRD §3.3) so the host can map them to its own
+  // screen resolution regardless of what resolution this viewer runs at.
+  function sendPointerMessage(msg: Record<string, unknown>) {
+    const channel = inputPointerRef.current;
+    if (channel && channel.readyState === "open") {
+      channel.send(JSON.stringify(msg));
+    }
+  }
+
+  function normalizedCoords(e: React.MouseEvent<HTMLVideoElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+  }
+
+  function buttonName(button: number): "left" | "middle" | "right" {
+    if (button === 1) return "middle";
+    if (button === 2) return "right";
+    return "left";
+  }
+
+  function handleMouseMove(e: React.MouseEvent<HTMLVideoElement>) {
+    // Cap to ~60fps — input-pointer is unordered/unreliable by design
+    // (TRD §3.3), but that doesn't mean flooding it with every native
+    // mousemove event (which can fire far more often) is a good idea.
+    const now = performance.now();
+    if (now - lastMoveSentRef.current < 16) return;
+    lastMoveSentRef.current = now;
+    const { x, y } = normalizedCoords(e);
+    sendPointerMessage({ type: "mousemove", x, y, ts: Date.now() });
+  }
+
+  function handleMouseDown(e: React.MouseEvent<HTMLVideoElement>) {
+    const { x, y } = normalizedCoords(e);
+    sendPointerMessage({ type: "mousedown", button: buttonName(e.button), x, y });
+  }
+
+  function handleMouseUp(e: React.MouseEvent<HTMLVideoElement>) {
+    const { x, y } = normalizedCoords(e);
+    sendPointerMessage({ type: "mouseup", button: buttonName(e.button), x, y });
+  }
+
+  function handleWheel(e: React.WheelEvent<HTMLVideoElement>) {
+    sendPointerMessage({ type: "scroll", deltaY: e.deltaY });
+  }
+
+  // Step 3.8: keyboard capture "while video focused" (App Flow A4) — the
+  // video element needs tabIndex to actually receive focus/key events.
+  // Sent on input-reliable (ordered/reliable — dropping a keystroke
+  // corrupts what gets typed, unlike a dropped mouse-position update).
+  function sendReliableMessage(msg: Record<string, unknown>) {
+    const channel = inputReliableRef.current;
+    if (channel && channel.readyState === "open") {
+      channel.send(JSON.stringify(msg));
+    }
+  }
+
+  function activeModifiers(e: React.KeyboardEvent<HTMLVideoElement>): string[] {
+    const mods: string[] = [];
+    if (e.shiftKey) mods.push("Shift");
+    if (e.ctrlKey) mods.push("Control");
+    if (e.altKey) mods.push("Alt");
+    if (e.metaKey) mods.push("Meta");
+    return mods;
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLVideoElement>) {
+    // Prevent the browser's own handling (scrolling on Space/arrows,
+    // triggering local shortcuts, etc.) — every keystroke here is meant
+    // for the remote host, not this page. Some browser-reserved keys
+    // (F5, F11, Ctrl+W) can't be intercepted regardless; that's a known
+    // limitation of any browser-based remote control tool, not a bug here.
+    e.preventDefault();
+    sendReliableMessage({ type: "keydown", key: e.key, code: e.code, modifiers: activeModifiers(e) });
+  }
+
+  function handleKeyUp(e: React.KeyboardEvent<HTMLVideoElement>) {
+    e.preventDefault();
+    sendReliableMessage({ type: "keyup", key: e.key, code: e.code, modifiers: activeModifiers(e) });
   }
 
   const live = screen !== "A1";
@@ -228,7 +336,15 @@ export default function ViewerFlow() {
               ref={videoRef}
               autoPlay
               playsInline
-              className={hasRemoteStream ? "w-full border border-hairline" : "hidden"}
+              tabIndex={0}
+              onMouseMove={handleMouseMove}
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onWheel={handleWheel}
+              onKeyDown={handleKeyDown}
+              onKeyUp={handleKeyUp}
+              onContextMenu={(e) => e.preventDefault()}
+              className={hasRemoteStream ? "w-full cursor-crosshair border border-hairline outline-none" : "hidden"}
             />
           </div>
         )}

@@ -1,0 +1,30 @@
+{
+  "name": "rap-host",
+  "version": "0.1.0",
+  "description": "Electron host app for the browser-based remote access platform (Phase 3)",
+  "private": true,
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "dev:electron": "electron .",
+    "start": "npm run build:renderer && electron .",
+    "test:keymap": "node src/main/keymap.test.js",
+    "postinstall": "electron-rebuild -f -w @nut-tree-fork/nut-js"
+  },
+  "dependencies": {
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.1",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.1"
+  }
+}
