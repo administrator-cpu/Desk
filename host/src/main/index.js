@@ -8,12 +8,11 @@ const {
   session,
   desktopCapturer,
   dialog,
-  screen: electronScreen,
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { io } = require("socket.io-client");
-const { mouse, keyboard, Button, Point } = require("@nut-tree-fork/nut-js");
+const { mouse, keyboard, Button, Point, screen: nutScreen } = require("@nut-tree-fork/nut-js");
 const { codeToKey } = require("./keymap.js");
 
 const SIGNALING_URL = process.env.SIGNALING_URL || "http://localhost:4000";
@@ -161,6 +160,7 @@ function createMainWindow() {
     height: 520,
     resizable: false,
     title: "Host session",
+    icon: path.join(__dirname, "../../assets/icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -269,6 +269,11 @@ function rebuildTrayMenu() {
 
 function setSessionActive(active) {
   sessionActive = active;
+  if (active) {
+    // Re-query at the start of each session rather than trusting a cache
+    // that might be from a previous session on a different resolution.
+    cachedScreenSize = null;
+  }
   rebuildTrayMenu();
 }
 
@@ -321,35 +326,55 @@ function buttonFromName(name) {
 // handle/invoke, since these fire at high frequency (mousemove) and don't
 // need a response — awaiting a round-trip per pointer update would add
 // latency for no benefit.
-ipcMain.on("input-pointer-message", (_event, msg) => {
-  const { width, height } = electronScreen.getPrimaryDisplay().size;
-  switch (msg.type) {
-    case "mousemove":
-      mouse
-        .setPosition(new Point(Math.round(msg.x * width), Math.round(msg.y * height)))
-        .catch((err) => log("mouse move error:", err.message));
-      break;
-    case "mousedown":
-      mouse
-        .setPosition(new Point(Math.round(msg.x * width), Math.round(msg.y * height)))
-        .then(() => mouse.pressButton(buttonFromName(msg.button)))
-        .catch((err) => log("mouse down error:", err.message));
-      break;
-    case "mouseup":
-      mouse.releaseButton(buttonFromName(msg.button)).catch((err) => log("mouse up error:", err.message));
-      break;
-    case "scroll": {
-      // TRD §3.3: pixel-precise scroll isn't available — nut.js only
-      // offers "steps", with the actual distance per step being OS
-      // dependent. This is a reasonable approximation, not exact fidelity.
-      const steps = Math.max(1, Math.round(Math.abs(msg.deltaY) / 100));
-      const scrollPromise = msg.deltaY > 0 ? mouse.scrollDown(steps) : mouse.scrollUp(steps);
-      scrollPromise.catch((err) => log("scroll error:", err.message));
-      break;
-    }
-    default:
-      log("unknown input-pointer message type:", msg.type);
+// Cached per session (reset when a new session starts, in case the
+// resolution changed between sessions). Using nut.js's OWN screen
+// dimensions here — not Electron's `screen` module — is deliberate: Electron
+// reports *logical/DIP* pixels, which shrink relative to actual hardware
+// pixels on any Windows display scaled above 100% (extremely common on
+// laptops), while nut.js's mouse.setPosition() operates in physical pixels.
+// Mixing the two silently misaligns the cursor — asking nut.js for its own
+// screen size instead removes that cross-library assumption entirely.
+let cachedScreenSize = null;
+async function getScreenSize() {
+  if (!cachedScreenSize) {
+    const [width, height] = await Promise.all([nutScreen.width(), nutScreen.height()]);
+    cachedScreenSize = { width, height };
+    log("nut.js screen size (physical pixels):", cachedScreenSize);
   }
+  return cachedScreenSize;
+}
+
+// Step 3.10: incoming input from the viewer, relayed here by the renderer
+// (which owns the RTCDataChannel — main process has no WebRTC access of
+// its own). Uses ipcMain.on/ipcRenderer.send (fire-and-forget) rather than
+// handle/invoke, since these fire at high frequency (mousemove) and don't
+// need a response — awaiting a round-trip per pointer update would add
+// latency for no benefit.
+ipcMain.on("input-pointer-message", (_event, msg) => {
+  getScreenSize()
+    .then(({ width, height }) => {
+      switch (msg.type) {
+        case "mousemove":
+          return mouse.setPosition(new Point(Math.round(msg.x * width), Math.round(msg.y * height)));
+        case "mousedown":
+          return mouse
+            .setPosition(new Point(Math.round(msg.x * width), Math.round(msg.y * height)))
+            .then(() => mouse.pressButton(buttonFromName(msg.button)));
+        case "mouseup":
+          return mouse.releaseButton(buttonFromName(msg.button));
+        case "scroll": {
+          // TRD §3.3: pixel-precise scroll isn't available — nut.js only
+          // offers "steps", with the actual distance per step being OS
+          // dependent. This is a reasonable approximation, not exact fidelity.
+          const steps = Math.max(1, Math.round(Math.abs(msg.deltaY) / 100));
+          return msg.deltaY > 0 ? mouse.scrollDown(steps) : mouse.scrollUp(steps);
+        }
+        default:
+          log("unknown input-pointer message type:", msg.type);
+          return undefined;
+      }
+    })
+    .catch((err) => log("input-pointer handling error:", err.message));
 });
 
 ipcMain.on("input-reliable-message", (_event, msg) => {

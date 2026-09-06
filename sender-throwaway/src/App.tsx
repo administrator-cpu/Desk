@@ -238,12 +238,6 @@ export default function App() {
         Host session
       </h1>
 
-      {import.meta.env.VITE_FORCE_RELAY === "true" && (
-        <p style={{ color: "#e2725b", fontSize: 13, margin: "-16px 0 24px" }}>
-          Forced TURN relay is ON — direct P2P is disabled for this test (step 2.10).
-        </p>
-      )}
-
       {!code && !capturing && <p>Requesting a code…</p>}
 
       {code && !pending && !capturing && (

@@ -23,6 +23,7 @@ export default function ViewerFlow() {
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState | null>(null);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const inputReliableRef = useRef<RTCDataChannel | null>(null);
   const inputPointerRef = useRef<RTCDataChannel | null>(null);
@@ -120,7 +121,11 @@ export default function ViewerFlow() {
       };
       pc.ontrack = (event) => {
         console.log("[viewer] track received");
-        if (videoRef.current) videoRef.current.srcObject = event.streams[0];
+        // Stored in a ref and attached via an effect (below), not directly
+        // here — the video element only mounts once hasRemoteStream is
+        // true (it's now a full-screen takeover, not always in the DOM),
+        // so videoRef.current would still be null at this exact moment.
+        remoteStreamRef.current = event.streams[0];
         setHasRemoteStream(true);
       };
       // Step 3.6: the host creates these as part of its offer; receive
@@ -169,10 +174,15 @@ export default function ViewerFlow() {
     };
   }, []);
 
-  // Auto-focus once video is live, so keyboard input works immediately
+  // Attach the stream once the video element actually exists — it only
+  // mounts once hasRemoteStream is true (see ontrack above for why), and
+  // auto-focuses at the same time so keyboard input works immediately
   // without an extra click first.
   useEffect(() => {
-    if (hasRemoteStream) videoRef.current?.focus();
+    if (hasRemoteStream && videoRef.current && remoteStreamRef.current) {
+      videoRef.current.srcObject = remoteStreamRef.current;
+      videoRef.current.focus();
+    }
   }, [hasRemoteStream]);
 
   function handleConnect() {
@@ -286,6 +296,30 @@ export default function ViewerFlow() {
 
   const live = screen !== "A1";
 
+  // Full-screen takeover once video is live — the two-column pairing
+  // layout only makes sense before you're actually looking at the host's
+  // screen; once connected, the remote screen should fill the viewport.
+  if (hasRemoteStream) {
+    return (
+      <div className="fixed inset-0 bg-canvas">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          tabIndex={0}
+          onMouseMove={handleMouseMove}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onWheel={handleWheel}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          onContextMenu={(e) => e.preventDefault()}
+          className="h-full w-full cursor-crosshair object-contain outline-none"
+        />
+      </div>
+    );
+  }
+
   return (
     <main className="mx-auto grid min-h-screen max-w-5xl grid-cols-1 md:grid-cols-[1.1fr_1px_1fr]">
       <section className="flex flex-col justify-center gap-10 px-6 py-16 md:px-12">
@@ -293,11 +327,6 @@ export default function ViewerFlow() {
           <h1 className="font-display text-4xl font-medium leading-tight text-ink">
             Connect to a host
           </h1>
-          {process.env.NEXT_PUBLIC_FORCE_RELAY === "true" && (
-            <p className="mt-3 text-sm text-error">
-              Forced TURN relay is ON — direct P2P is disabled for this test (step 2.10).
-            </p>
-          )}
           <p className="mt-4 text-[15px] leading-relaxed text-ink-muted">
             Enter the 9-digit code shown on the machine you want to reach.
             Nothing installs on this side — the code opens a direct,
@@ -322,30 +351,11 @@ export default function ViewerFlow() {
         ) : screen === "A2" ? (
           <A2WaitingScreen onCancel={handleCancel} />
         ) : (
-          // A3 (Connecting) proper — with a screen transition to A4 on
-          // "connected" — is step 2.7/2.8. This is the minimal version:
-          // status text until a track arrives, then the raw video.
-          <div className="flex flex-col gap-4">
-            {!hasRemoteStream && (
-              <div className="flex items-center gap-3 text-[15px] text-ink">
-                <span className="signal-pulse h-2 w-2 rounded-full bg-signal" />
-                {connectionState ? `Establishing the connection… (${connectionState})` : "Accepted — establishing the connection…"}
-              </div>
-            )}
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              tabIndex={0}
-              onMouseMove={handleMouseMove}
-              onMouseDown={handleMouseDown}
-              onMouseUp={handleMouseUp}
-              onWheel={handleWheel}
-              onKeyDown={handleKeyDown}
-              onKeyUp={handleKeyUp}
-              onContextMenu={(e) => e.preventDefault()}
-              className={hasRemoteStream ? "w-full cursor-crosshair border border-hairline outline-none" : "hidden"}
-            />
+          // A3 (Connecting) — once hasRemoteStream flips true above, this
+          // branch is bypassed entirely by the early return.
+          <div className="flex items-center gap-3 text-[15px] text-ink">
+            <span className="signal-pulse h-2 w-2 rounded-full bg-signal" />
+            {connectionState ? `Establishing the connection… (${connectionState})` : "Accepted — establishing the connection…"}
           </div>
         )}
       </section>
@@ -353,17 +363,37 @@ export default function ViewerFlow() {
   );
 }
 
+/** Evenly-spaced dots between two x-coordinates at a fixed y — used instead
+ * of SVG strokeDasharray, which can pixel-snap inconsistently between two
+ * otherwise-identical lines depending on final rendered scale factor,
+ * producing visibly uneven dot spacing on close inspection even when the
+ * underlying math (line length, dash pattern) is symmetric. Explicit dots
+ * guarantee both sides render identically regardless of scaling. */
+function connectorDots(x1: number, x2: number, y: number, spacing: number) {
+  const length = x2 - x1;
+  const count = Math.max(2, Math.round(length / spacing) + 1);
+  const step = length / (count - 1);
+  return Array.from({ length: count }, (_, i) => ({ cx: x1 + step * i, cy: y }));
+}
+
 function PairingDiagram({ live }: { live: boolean }) {
+  const leftDots = connectorDots(16, 150, 45, 8);
+  const rightDots = connectorDots(190, 324, 45, 8);
+
   return (
     <svg viewBox="0 0 340 90" className="w-full max-w-[360px]" aria-hidden>
       <text x="0" y="20" className="fill-ink-muted font-mono text-[11px]">this browser</text>
       <circle cx="8" cy="45" r="5" className="fill-ink-muted" />
-      <line x1="16" y1="45" x2="150" y2="45" stroke="var(--color-hairline)" strokeWidth="1.5" strokeDasharray="4 4" />
+      {leftDots.map((d, i) => (
+        <circle key={`left-${i}`} cx={d.cx} cy={d.cy} r="1.3" className="fill-hairline" />
+      ))}
 
       <circle cx="170" cy="45" r="9" className={live ? "fill-signal signal-pulse" : "fill-ink-muted"} />
       <text x="145" y="70" className="fill-ink-muted font-mono text-[11px]">code</text>
 
-      <line x1="190" y1="45" x2="324" y2="45" stroke="var(--color-hairline)" strokeWidth="1.5" strokeDasharray="4 4" />
+      {rightDots.map((d, i) => (
+        <circle key={`right-${i}`} cx={d.cx} cy={d.cy} r="1.3" className="fill-hairline" />
+      ))}
       <circle cx="332" cy="45" r="5" className="fill-ink-muted" />
       <text x="230" y="20" className="fill-ink-muted font-mono text-[11px]">their computer</text>
     </svg>
