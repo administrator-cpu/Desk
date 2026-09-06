@@ -22,7 +22,9 @@ export default function ViewerFlow() {
   const [notice, setNotice] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState | null>(null);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const inputReliableRef = useRef<RTCDataChannel | null>(null);
@@ -180,10 +182,48 @@ export default function ViewerFlow() {
   // without an extra click first.
   useEffect(() => {
     if (hasRemoteStream && videoRef.current && remoteStreamRef.current) {
-      videoRef.current.srcObject = remoteStreamRef.current;
-      videoRef.current.focus();
+      const video = videoRef.current;
+      // Idempotent on purpose — React StrictMode runs effects twice on
+      // mount in dev, and reassigning srcObject when it's already correct
+      // restarts the video's internal load process, aborting any
+      // in-flight play() from the previous run (AbortError: "interrupted
+      // by a new load request"). Skipping the redundant reassignment
+      // means a StrictMode double-run is a harmless no-op instead of a
+      // video that never settles into actually playing.
+      if (video.srcObject !== remoteStreamRef.current) {
+        video.srcObject = remoteStreamRef.current;
+      }
+      video.focus();
+      video.play().catch((err) => {
+        console.error("[viewer] video.play() failed:", err);
+      });
     }
   }, [hasRemoteStream]);
+
+  // App Flow A4: "Fullscreen toggle ... Browser Fullscreen API
+  // (requestFullscreen) ... local UI state only". Tracks actual fullscreen
+  // state via the browser's own event, since the user can also exit with
+  // Esc directly (not through our button), which wouldn't otherwise update
+  // the icon.
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  async function handleToggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("[viewer] fullscreen toggle failed:", err);
+    }
+  }
 
   function handleConnect() {
     const digitsOnly = code.replace(/\s/g, "");
@@ -222,9 +262,35 @@ export default function ViewerFlow() {
   }
 
   function normalizedCoords(e: React.MouseEvent<HTMLVideoElement>) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    const video = e.currentTarget;
+    const rect = video.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // With object-cover, the video's intrinsic content is scaled up and
+    // center-cropped to fill the element — a naive mx/rect.width fraction
+    // would be wrong (it'd ignore the cropped-off edges), silently
+    // misaligning every click. Compute the actual displayed-content
+    // rectangle (before cropping) and map the click into fractional
+    // coordinates on the *full source frame*, not just the visible crop.
+    const iw = video.videoWidth;
+    const ih = video.videoHeight;
+    if (!iw || !ih) {
+      // Metadata not loaded yet (shouldn't normally happen once playing) —
+      // fall back to the naive element-relative fraction.
+      const x = mx / rect.width;
+      const y = my / rect.height;
+      return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+    }
+
+    const scale = Math.max(rect.width / iw, rect.height / ih);
+    const displayedW = iw * scale;
+    const displayedH = ih * scale;
+    const cropX = (displayedW - rect.width) / 2;
+    const cropY = (displayedH - rect.height) / 2;
+
+    const x = (mx + cropX) / displayedW;
+    const y = (my + cropY) / displayedH;
     return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
   }
 
@@ -301,7 +367,7 @@ export default function ViewerFlow() {
   // screen; once connected, the remote screen should fill the viewport.
   if (hasRemoteStream) {
     return (
-      <div className="fixed inset-0 bg-canvas">
+      <div ref={containerRef} className="fixed inset-0 bg-canvas">
         <video
           ref={videoRef}
           autoPlay
@@ -314,8 +380,24 @@ export default function ViewerFlow() {
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onContextMenu={(e) => e.preventDefault()}
-          className="h-full w-full cursor-crosshair object-contain outline-none"
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            console.log("[viewer] video metadata loaded:", v.videoWidth, "x", v.videoHeight, "readyState:", v.readyState);
+          }}
+          onError={(e) => {
+            console.error("[viewer] video element error:", e.currentTarget.error);
+          }}
+          onPlaying={() => console.log("[viewer] video is playing")}
+          className="h-full w-full cursor-crosshair object-cover outline-none"
         />
+        <button
+          type="button"
+          onClick={handleToggleFullscreen}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center border border-hairline bg-canvas/70 text-ink-muted transition-colors hover:border-ink-muted hover:text-ink"
+        >
+          {isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />}
+        </button>
       </div>
     );
   }
@@ -374,6 +456,34 @@ function connectorDots(x1: number, x2: number, y: number, spacing: number) {
   const count = Math.max(2, Math.round(length / spacing) + 1);
   const step = length / (count - 1);
   return Array.from({ length: count }, (_, i) => ({ cx: x1 + step * i, cy: y }));
+}
+
+function EnterFullscreenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M6 1H1v5M10 1h5v5M6 15H1v-5M10 15h5v-5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExitFullscreenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M1 6h5V1M15 6h-5V1M1 10h5v5M15 10h-5v5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 function PairingDiagram({ live }: { live: boolean }) {

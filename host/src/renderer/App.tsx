@@ -7,7 +7,7 @@ type ViewerMeta = { ip?: string; userAgent?: string };
 type Pending = { viewerSocketId: string; viewerMeta?: ViewerMeta } | null;
 
 const B3_TIMEOUT_MS = 30_000; // App Flow B3: auto-dismiss after 30s, treated as implicit decline.
-const DISCONNECT_GRACE_MS = 5_000; // App Flow B4/A4: sustained disconnect >5s before ending, no auto-reconnect.
+const DISCONNECT_GRACE_MS = 20_000; // Real cross-network paths (TURN relay, genuine internet hops) can have longer transient dips than same-LAN testing showed — 5s (App Flow's literal spec value) was killing sessions that would've self-recovered. 20s gives real reconnection attempts room to succeed.
 
 export default function App() {
   const [room, setRoom] = useState<Room>(null);
