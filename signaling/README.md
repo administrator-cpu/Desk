@@ -36,6 +36,7 @@ npm start          # listens on :4000 (PORT env var to override)
 npm run test:harness           # steps 1.9: create -> join -> accept -> message
 node test/run-edgecases.js     # invalid code, rate limit, reject-and-reuse, malformed payload
 node test/run-ttl.js           # TTL expiry -> room:code-expired -> code rejected after
+node test/run-compliance-log.js  # CERT-In logging: file creation, JSON structure, retention cleanup
 ```
 
 To re-run the harness against a deployed instance (step 1.10):
@@ -64,3 +65,5 @@ SIGNALING_URL=https://your-app.onrender.com node test/run-harness.js
 | `TURN_SHARED_SECRET` | dev placeholder | coturn `static-auth-secret` for HMAC credential signing |
 | `TURN_URLS` | placeholder invalid host | comma-separated `turn:`/`turns:` URLs |
 | `ROOM_TTL_MS` | `120000` | **test-only** override for the room TTL; never set in production |
+| `CERT_IN_LOG_DIR` | `./logs/signaling` | Where connection/access compliance logs are written (India-hosted deployments — see `cert-in-logging-setup-guide.md`) |
+| `CERT_IN_LOG_RETENTION_DAYS` | `180` | How long compliance logs are kept before auto-deletion |

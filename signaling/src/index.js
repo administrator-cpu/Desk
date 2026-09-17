@@ -6,6 +6,7 @@ import { RoomStore, RoomError } from "./rooms.js";
 import { RateLimiter } from "./rateLimiter.js";
 import { validate } from "./schemas.js";
 import { issueTurnCredentials } from "./turn.js";
+import { logEvent, startCleanupSchedule } from "./complianceLog.js";
 
 const PORT = process.env.PORT || 4000;
 
@@ -70,6 +71,7 @@ io.on("connection", (socket) => {
   socket.on("host:create-room", (payload) => {
     if (!parseOrReject(socket, "host:create-room", payload)) return;
     const { code, expiresAt } = rooms.createRoom(socket.id);
+    logEvent("room_created", { code, sourceIp: getSourceIp(socket) });
     socket.emit("room:created", { code, expiresAt });
   });
 
@@ -80,12 +82,14 @@ io.on("connection", (socket) => {
     const sourceIp = getSourceIp(socket);
     if (!rateLimiter.attempt(sourceIp)) {
       // Never leak whether the code itself was valid (Backend Schema §3.2 / TRD §2.1).
+      logEvent("join_attempt", { code: data.code, sourceIp, outcome: "rate_limited" });
       socket.emit("error", { error: "rate_limited" });
       return;
     }
 
     try {
       const room = rooms.requestJoin(data.code, socket.id);
+      logEvent("join_attempt", { code: data.code, sourceIp, outcome: "pending_accept" });
       socket.emit("viewer:join-accepted-pending"); // internal ack the viewer app can ignore/use for loading state
       io.to(room.hostSocketId).emit("viewer:request-join", {
         viewerSocketId: socket.id,
@@ -93,6 +97,7 @@ io.on("connection", (socket) => {
       });
     } catch (err) {
       if (err instanceof RoomError) {
+        logEvent("join_attempt", { code: data.code, sourceIp, outcome: err.code });
         socket.emit("error", { error: err.code });
       } else {
         throw err;
@@ -127,6 +132,7 @@ io.on("connection", (socket) => {
     try {
       const { viewerSocketId } = rooms.accept(room.code, socket.id);
       pairSockets(socket.id, viewerSocketId);
+      logEvent("session_start", { code: room.code, hostSourceIp: getSourceIp(socket), viewerSocketId });
       // Both peers configure ICE independently against the TURN
       // provider/secret, so each can be issued its own credential — they
       // don't need to be identical, just each independently valid. The
@@ -134,20 +140,13 @@ io.on("connection", (socket) => {
       // host:accepted carrying credentials to the *viewer*; the host needs
       // the same thing to build its own RTCPeerConnection, so it gets an
       // equivalent ack here.
-      try {
-        const turnCredentials = await issueTurnCredentials({ sessionId: `${room.code}-${Date.now()}` });
-        io.to(viewerSocketId).emit("host:accepted", { turnCredentials });
-        socket.emit("host:accept-ack", { turnCredentials });
-      } catch (turnErr) {
-        // The room is already committed/deleted at this point (single-use
-        // invalidation already happened) — a TURN provider outage shouldn't
-        // silently hang either side, so both get an explicit error and have
-        // to re-pair with a fresh code.
-        console.error("TURN credential issuance failed:", turnErr);
-        io.to(viewerSocketId).emit("error", { error: "turn_unavailable" });
-        socket.emit("error", { error: "turn_unavailable" });
-        unpairSocket(socket.id);
-      }
+      // turnCredentials may be null (no TURN configured, or the provider is
+      // unreachable/over quota) — issueTurnCredentials() never throws, and
+      // callers on both ends build a STUN-only ICE config when it's null,
+      // so pairing itself never blocks on TURN being available.
+      const turnCredentials = await issueTurnCredentials({ sessionId: `${room.code}-${Date.now()}` });
+      io.to(viewerSocketId).emit("host:accepted", { turnCredentials });
+      socket.emit("host:accept-ack", { turnCredentials });
     } catch (err) {
       if (err instanceof RoomError) {
         socket.emit("error", { error: err.code });
@@ -169,6 +168,7 @@ io.on("connection", (socket) => {
       return;
     }
     rooms.reject(room.code, socket.id);
+    logEvent("session_reject", { code: room.code, sourceIp: getSourceIp(socket) });
     io.to(data.viewerSocketId).emit("host:reject");
   });
 
@@ -187,6 +187,7 @@ io.on("connection", (socket) => {
   socket.on("session:end", (payload) => {
     const data = parseOrReject(socket, "session:end", payload);
     if (!data) return;
+    logEvent("session_end", { reason: data.reason, sourceIp: getSourceIp(socket) });
     const peer = unpairSocket(socket.id);
     if (peer) io.to(peer).emit("session:end", data);
   });
@@ -208,5 +209,6 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
+  startCleanupSchedule(); // CERT-In compliance logging — see complianceLog.js
   console.log(`Signaling server listening on :${PORT}`);
 });

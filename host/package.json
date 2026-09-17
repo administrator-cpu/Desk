@@ -10,7 +10,10 @@
     "dev:electron": "electron .",
     "start": "npm run build:renderer && electron .",
     "test:keymap": "node src/main/keymap.test.js",
-    "postinstall": "electron-rebuild -f -w @nut-tree-fork/nut-js"
+    "postinstall": "electron-rebuild -f -w @nut-tree-fork/nut-js",
+    "dist:win": "npm run build:renderer && electron-builder --win",
+    "dist:mac": "npm run build:renderer && electron-builder --mac",
+    "dist:linux": "npm run build:renderer && electron-builder --linux"
   },
   "dependencies": {
     "@nut-tree-fork/nut-js": "^4.2.6",
@@ -22,9 +25,45 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "electron": "^31.3.0",
+    "electron-builder": "^26.15.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.1"
+  },
+  "build": {
+    "appId": "com.remoteaccessplatform.host",
+    "productName": "Remote Access Host",
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "files": [
+      "src/main/**/*",
+      "src/preload/**/*",
+      "dist/renderer/**/*",
+      "assets/**/*",
+      "package.json",
+      "!src/main/keymap.test.js"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
   }
 }

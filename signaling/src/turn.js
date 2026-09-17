@@ -92,19 +92,33 @@ function issueLocalHmacCredentials(sessionId, ttlSeconds) {
 }
 
 /**
- * Mints/fetches short-lived, per-session TURN credentials. Nothing here is
- * persisted (Backend Schema §3.3) — for the local-HMAC path, recomputing
- * from the same inputs before expiry yields the same value, so there's no
- * need for a database row; for the Metered paths, the provider holds the
- * credential state on their end instead.
+ * Mints/fetches short-lived, per-session TURN credentials, or returns null
+ * if TURN isn't configured or the provider is unreachable/over quota.
+ * Returning null (rather than throwing) is deliberate: TURN is only a
+ * fallback for connections direct P2P can't establish (PRD §5.1) — most
+ * connections between two normal home networks work fine without it, so a
+ * TURN outage or an unconfigured TURN provider shouldn't block pairing
+ * entirely. Callers build an ICE config with just STUN when this is null.
  */
 export async function issueTurnCredentials({ sessionId, ttlSeconds = DEFAULT_TTL_SECONDS } = {}) {
   const id = sessionId ?? crypto.randomUUID();
-  if (process.env.METERED_APP_NAME && process.env.METERED_API_KEY) {
-    return issueMeteredStaticCredentials();
+
+  if (!process.env.METERED_APP_NAME && !process.env.TURN_SHARED_SECRET) {
+    // No TURN provider configured at all — this is a valid, expected state
+    // (e.g. running without a TURN budget), not an error.
+    return null;
   }
-  if (process.env.METERED_APP_NAME && process.env.METERED_SECRET_KEY) {
-    return issueMeteredMintedCredentials(id, ttlSeconds);
+
+  try {
+    if (process.env.METERED_APP_NAME && process.env.METERED_API_KEY) {
+      return await issueMeteredStaticCredentials();
+    }
+    if (process.env.METERED_APP_NAME && process.env.METERED_SECRET_KEY) {
+      return await issueMeteredMintedCredentials(id, ttlSeconds);
+    }
+    return issueLocalHmacCredentials(id, ttlSeconds);
+  } catch (err) {
+    console.error("TURN credential issuance failed, proceeding without TURN:", err.message);
+    return null;
   }
-  return issueLocalHmacCredentials(id, ttlSeconds);
 }

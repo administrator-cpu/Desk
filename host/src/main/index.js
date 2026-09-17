@@ -15,8 +15,33 @@ const { io } = require("socket.io-client");
 const { mouse, keyboard, Button, Point, screen: nutScreen } = require("@nut-tree-fork/nut-js");
 const { codeToKey } = require("./keymap.js");
 
-const SIGNALING_URL = process.env.SIGNALING_URL || "http://localhost:4000";
+// Defaults to the deployed signaling server so a packaged, double-clicked
+// installer works out of the box for friends with zero configuration — a
+// distributed .exe has no way to set an environment variable before
+// launch, unlike running via `npm run dev:electron` during development.
+// Override with SIGNALING_URL for local dev against a different server.
+const SIGNALING_URL = process.env.SIGNALING_URL || "https://desk-r7tr.onrender.com";
 const RENDERER_DEV_URL = process.env.RENDERER_DEV_URL || "http://localhost:5174";
+
+// Without this, every launch (e.g. clicking the Desktop/Start Menu shortcut
+// while the app is already running in the tray) spawns a brand-new,
+// entirely separate process — duplicate tray icons, duplicate signaling
+// connections, the works. requestSingleInstanceLock() makes every launch
+// after the first one immediately quit and instead notify the *existing*
+// instance via "second-instance", so relaunching just surfaces the
+// already-running app's window rather than piling up new processes.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  // A relaunch attempt (e.g. clicking the shortcut again) lands here on
+  // the *existing* instance — surface its window rather than doing
+  // nothing, since that's what a user double-clicking the shortcut
+  // actually expects to happen.
+  app.on("second-instance", () => {
+    createMainWindow();
+  });
+}
 
 // Debug log written to a file rather than relying on console output —
 // some Windows + Electron setups don't reliably forward stdout/stderr to
@@ -391,6 +416,7 @@ ipcMain.on("input-reliable-message", (_event, msg) => {
 });
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return; // this instance is already quitting — do nothing further
   log("app.whenReady fired");
   try {
     connectSocket();

@@ -22,7 +22,7 @@ export default function ViewerFlow() {
   const [notice, setNotice] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState | null>(null);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);

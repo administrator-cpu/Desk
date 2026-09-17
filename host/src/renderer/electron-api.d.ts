@@ -3,7 +3,7 @@ export {};
 type Room = { code: string; expiresAt: number } | null;
 type ViewerMeta = { ip?: string; userAgent?: string };
 type ViewerRequestJoin = { viewerSocketId: string; viewerMeta?: ViewerMeta };
-type TurnCredentials = { urls: string[]; username: string; credential: string; ttl: number };
+type TurnCredentials = { urls: string[]; username: string; credential: string; ttl: number } | null;
 type SdpPayload = { sdp: { type: RTCSdpType; sdp: string } };
 type IceCandidatePayload = { candidate: RTCIceCandidateInit };
 

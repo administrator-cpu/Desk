@@ -21,9 +21,14 @@ function log(label, ...args) {
   console.log(`[harness:${label}]`, ...args);
 }
 
+let host = null;
+let viewer = null;
+
 function fail(message) {
   console.error(`FAIL: ${message}`);
   process.exitCode = 1;
+  host?.close();
+  viewer?.close();
   cleanup();
 }
 
@@ -55,8 +60,8 @@ function waitFor(socket, event, timeoutMs = 5000) {
 async function main() {
   await startLocalServerIfNeeded();
 
-  const host = ioClient(URL, { transports: ["websocket"] });
-  const viewer = ioClient(URL, { transports: ["websocket"] });
+  host = ioClient(URL, { transports: ["websocket"] });
+  viewer = ioClient(URL, { transports: ["websocket"] });
 
   await Promise.all([waitFor(host, "connect"), waitFor(viewer, "connect")]);
   log("setup", `both clients connected to ${URL}`);
@@ -76,11 +81,20 @@ async function main() {
   const acceptedPromise = waitFor(viewer, "host:accepted");
   host.emit("host:accept", { viewerSocketId });
   const accepted = await acceptedPromise;
-  if (!accepted?.turnCredentials?.username) {
-    fail("host:accepted payload missing turnCredentials");
+  // turnCredentials is legitimately null when no TURN provider is
+  // configured (or it's unreachable) — issueTurnCredentials() never
+  // throws, so pairing itself must not depend on TURN being present.
+  // Only fail if the field's shape is wrong when it IS present.
+  if (accepted.turnCredentials !== null && !accepted.turnCredentials?.username) {
+    fail(`host:accepted payload has malformed turnCredentials: ${JSON.stringify(accepted.turnCredentials)}`);
     return;
   }
-  log("viewer", "host:accepted received (with TURN credentials present)");
+  log(
+    "viewer",
+    accepted.turnCredentials
+      ? "host:accepted received (with TURN credentials present)"
+      : "host:accepted received (no TURN configured — STUN-only, as expected)"
+  );
 
   // 4. free-text message exchange, both directions
   const viewerGotMessage = waitFor(viewer, "message");
