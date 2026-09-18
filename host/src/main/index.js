@@ -15,12 +15,24 @@ const { io } = require("socket.io-client");
 const { mouse, keyboard, Button, Point, screen: nutScreen } = require("@nut-tree-fork/nut-js");
 const { codeToKey } = require("./keymap.js");
 
+// Loads a real .env FILE — separate from (and in addition to) actual shell
+// environment variables, which is what process.env.SIGNALING_URL alone
+// reads. A packaged, double-clicked .exe has no shell to set env vars in
+// at all, so a .env file sitting next to the installed app is the only
+// practical way to override settings without rebuilding. Path differs
+// between dev and packaged: in dev, `host/.env` next to package.json; once
+// packaged, right next to the installed .exe itself (NOT inside the
+// app.asar resources — that'd require rebuilding to change).
+const envPath = app.isPackaged
+  ? path.join(path.dirname(process.execPath), ".env")
+  : path.join(__dirname, "../../.env");
+require("dotenv").config({ path: envPath });
+
 // Defaults to the deployed signaling server so a packaged, double-clicked
-// installer works out of the box for friends with zero configuration — a
-// distributed .exe has no way to set an environment variable before
-// launch, unlike running via `npm run dev:electron` during development.
-// Override with SIGNALING_URL for local dev against a different server.
-const SIGNALING_URL = process.env.SIGNALING_URL || "https://desk-r7tr.onrender.com";
+// installer works out of the box for friends with zero configuration even
+// with no .env file present at all. Override via a .env file (see above)
+// or SIGNALING_URL directly when running from a shell during development.
+const SIGNALING_URL = process.env.SIGNALING_URL || "https://desk-api.thediv.in";
 const RENDERER_DEV_URL = process.env.RENDERER_DEV_URL || "http://localhost:5174";
 
 // Without this, every launch (e.g. clicking the Desktop/Start Menu shortcut
