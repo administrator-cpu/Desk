@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import B3AcceptModal from "./B3AcceptModal";
 import { buildRtcConfig, type TurnCredentials } from "./webrtc";
+import { brandEdge, button, card, color, font, gradient, monoLabel } from "./brand";
 
 type Room = { code: string; expiresAt: number } | null;
 type ViewerMeta = { ip?: string; userAgent?: string };
@@ -254,83 +255,137 @@ export default function App() {
   }
 
   return (
-    <main style={{ maxWidth: 420, margin: "0 auto", padding: "40px 24px" }}>
-      <p style={{ color: "#8b95a1", fontSize: 13, marginBottom: 4 }}>rap-host · Phase 3</p>
-      <h1 style={{ fontSize: 20, fontWeight: 500, margin: "0 0 28px" }}>Host session</h1>
+    <main
+      style={{
+        minHeight: "100vh",
+        background: color.canvas,
+        color: color.ink,
+        fontFamily: font.sans,
+        display: "flex",
+        flexDirection: "column",
+        padding: "28px 24px 20px",
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: 420, margin: "0 auto", flex: 1, display: "flex", flexDirection: "column", gap: 18 }}>
 
-      {errorMsg && <p style={{ color: "#e2725b", fontSize: 13, marginBottom: 16 }}>{errorMsg}</p>}
-
-      {!capturing && (
-        <>
-          {!room && <p>Requesting a code…</p>}
-          {room && (
-            <div>
-              <p style={{ color: "#8b95a1", marginBottom: 8 }}>Share this code with the viewer:</p>
-              <div style={{ fontSize: 36, letterSpacing: 3, color: "#4fd8c4", marginBottom: 8 }}>
-                {room.code}
-              </div>
-              <Countdown expiresAt={room.expiresAt} />
-              <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-                <button onClick={handleCopy} style={buttonStyle("#4fd8c4")}>
-                  {copied ? "Copied" : "Copy Code"}
-                </button>
-                <button onClick={() => window.electronAPI.requestNewCode()} style={buttonStyle("#8b95a1")}>
-                  Refresh Code
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {capturing && (
-        <div>
+        {errorMsg && (
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 20,
-              color: "#4fd8c4",
-            }}
+            role="alert"
+            style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 13px", background: color.criticalBg, border: `1px solid ${color.criticalBorder}`, borderRadius: 10 }}
           >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: "#4fd8c4",
-                display: "inline-block",
-              }}
-            />
-            Session active — {activeViewerMeta?.ip ?? "unknown viewer"}
-            {connectionState ? ` (${connectionState})` : ""}
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: color.critical, marginTop: 6, flex: "none" }} />
+            <span style={{ fontSize: 13, lineHeight: 1.45, color: color.criticalInk }}>{errorMsg}</span>
           </div>
-          <button onClick={() => handleEndSession("host_ended")} style={buttonStyle("#e2725b")}>
-            End Session
-          </button>
-        </div>
-      )}
+        )}
+
+        {!capturing && (
+          <section style={{ ...card, display: "flex", flexDirection: "column" }}>
+            <div style={brandEdge} />
+            {!room && (
+              <div style={{ padding: "48px 24px", textAlign: "center", ...monoLabel, color: color.secondary }}>Requesting a code…</div>
+            )}
+            {room && (
+              <div style={{ padding: "28px 24px", display: "flex", flexDirection: "column", gap: 22 }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center" }}>
+                  <span style={monoLabel}>Read this out</span>
+                  <div style={{ display: "flex", gap: 12, fontFamily: font.mono, fontSize: 30, fontWeight: 500, letterSpacing: "0.1em" }}>
+                    <span>{room.code.slice(0, 3)}</span>
+                    <span>{room.code.slice(3, 6)}</span>
+                    <span>{room.code.slice(6, 9)}</span>
+                  </div>
+                  <Countdown expiresAt={room.expiresAt} />
+                </div>
+
+                <div style={{ height: 1, background: color.border }} />
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <button
+                    onClick={handleCopy}
+                    style={button("primary", true)}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = color.inkHover)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = color.ink)}
+                  >
+                    {copied ? "Copied" : "Copy code"}
+                  </button>
+                  <button
+                    onClick={() => window.electronAPI.requestNewCode()}
+                    style={button("secondary", true)}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = color.placeholder)}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = color.border)}
+                  >
+                    Refresh code
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", background: color.surfaceQuiet, border: `1px solid ${color.border}`, borderRadius: 10 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: color.magenta, flex: "none" }} />
+                  <span style={{ fontSize: 12, lineHeight: 1.45, color: color.secondary }}>
+                    Running in the tray. Closing this window keeps it alive.
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {capturing && (
+          <section style={{ ...card, display: "flex", flexDirection: "column" }}>
+            <div style={brandEdge} />
+            <div style={{ padding: "28px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
+                <span
+                  style={{ width: 10, height: 10, borderRadius: "50%", background: color.success, display: "inline-block" }}
+                  aria-hidden
+                />
+                <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.02em" }}>Session active</div>
+                <div style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: "0.08em", color: color.secondary }}>
+                  {activeViewerMeta?.ip ?? "unknown viewer"}
+                  {connectionState ? ` · ${connectionState}` : ""}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: 14,
+                  border: `1px solid ${color.border}`,
+                  borderRadius: 10,
+                  background: `repeating-linear-gradient(135deg, ${color.surfaceQuiet} 0 8px, ${color.surface} 8px 16px)`,
+                  textAlign: "center",
+                  ...monoLabel,
+                  letterSpacing: "0.14em",
+                }}
+              >
+                Your screen is being shared
+              </div>
+
+              <button
+                onClick={() => handleEndSession("host_ended")}
+                style={button("destructive", true)}
+                onMouseEnter={(e) => (e.currentTarget.style.background = color.criticalBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = color.surface)}
+              >
+                End session
+              </button>
+            </div>
+          </section>
+        )}
+
+        <footer style={{ marginTop: "auto", paddingTop: 5, borderTop: ``, ...monoLabel, letterSpacing: "0.14em", textAlign: "center" }}>
+          Powered by DIV &lt;/&gt;
+        </footer>
+      </div>
 
       {pending && (
         <B3AcceptModal
           viewerMeta={pending.viewerMeta}
+          timeoutMs={B3_TIMEOUT_MS}
           onAccept={handleAccept}
           onDecline={() => handleDecline()}
         />
       )}
     </main>
   );
-}
-
-function buttonStyle(color: string): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: `1px solid ${color}`,
-    color,
-    padding: "10px 18px",
-    fontSize: 13,
-  };
 }
 
 function Countdown({ expiresAt }: { expiresAt: number }) {
@@ -340,5 +395,24 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
     return () => clearInterval(id);
   }, []);
   const secondsLeft = Math.max(0, Math.round((expiresAt - now) / 1000));
-  return <p style={{ color: "#8b95a1", fontSize: 13 }}>Expires in {secondsLeft}s</p>;
+  const urgent = secondsLeft <= 30;
+  const label = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
+  return (
+    <span
+      style={{
+        fontFamily: font.mono,
+        fontSize: 11,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        padding: "4px 10px",
+        borderRadius: 999,
+        // State colour never travels alone — the word "Expires" carries it.
+        color: urgent ? color.warningInk : color.secondary,
+        background: urgent ? color.warningBg : color.surfaceQuiet,
+        border: `1px solid ${urgent ? color.warning : color.border}`,
+      }}
+    >
+      Expires in {label}
+    </span>
+  );
 }

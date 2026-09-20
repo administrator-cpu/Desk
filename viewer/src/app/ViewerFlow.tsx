@@ -367,7 +367,7 @@ export default function ViewerFlow() {
   // screen; once connected, the remote screen should fill the viewport.
   if (hasRemoteStream) {
     return (
-      <div ref={containerRef} className="fixed inset-0 bg-canvas">
+      <div ref={containerRef} className="fixed inset-0 bg-ink">
         <video
           ref={videoRef}
           autoPlay
@@ -390,11 +390,16 @@ export default function ViewerFlow() {
           onPlaying={() => console.log("[viewer] video is playing")}
           className="h-full w-full cursor-crosshair object-cover outline-none"
         />
+        {/* State colour never travels alone — the dot carries the word. */}
+        <div className="pointer-events-none absolute left-4 top-4 flex items-center gap-2 rounded-full bg-ink/85 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-white">
+          <span className="signal-pulse block h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+          Controlling
+        </div>
         <button
           type="button"
           onClick={handleToggleFullscreen}
           aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center border border-hairline bg-canvas/70 text-ink-muted transition-colors hover:border-ink-muted hover:text-ink"
+          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/15 bg-ink/85 text-white transition-colors hover:bg-ink"
         >
           {isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />}
         </button>
@@ -403,44 +408,70 @@ export default function ViewerFlow() {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-5xl grid-cols-1 md:grid-cols-[1.1fr_1px_1fr]">
-      <section className="flex flex-col justify-center gap-10 px-6 py-16 md:px-12">
-        <div className="max-w-[42ch]">
-          <h1 className="font-display text-4xl font-medium leading-tight text-ink">
-            Connect to a host
-          </h1>
-          <p className="mt-4 text-[15px] leading-relaxed text-ink-muted">
-            Enter the 9-digit code shown on the machine you want to reach.
-            Nothing installs on this side — the code opens a direct,
-            encrypted connection once the host owner accepts.
-          </p>
-        </div>
-        <PairingDiagram live={live} />
-      </section>
+    <main className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-10 md:px-10">
+      <header className="flex items-baseline justify-between gap-4 border-b border-hairline pb-5">
+        {/* <div className="flex items-baseline gap-3">
+          <span className="brand-wordmark text-[22px] font-extrabold tracking-[-0.02em]">DIV</span>
+          <span className="mono-label">Private Limited</span>
+        </div> */}
+        <span className="mono-label tracking-[0.14em]">Samadhan desk</span>
+      </header>
 
-      <div className="hidden bg-hairline md:block" aria-hidden />
-
-      <section className="flex flex-col justify-center px-6 py-16 md:px-12">
-        {screen === "A1" || screen === "A1-submitting" ? (
-          <A1PairingScreen
-            code={code}
-            onChange={setCode}
-            onConnect={handleConnect}
-            submitting={screen === "A1-submitting"}
-            error={error}
-            notice={notice}
-          />
-        ) : screen === "A2" ? (
-          <A2WaitingScreen onCancel={handleCancel} />
-        ) : (
-          // A3 (Connecting) — once hasRemoteStream flips true above, this
-          // branch is bypassed entirely by the early return.
-          <div className="flex items-center gap-3 text-[15px] text-ink">
-            <span className="signal-pulse h-2 w-2 rounded-full bg-signal" />
-            {connectionState ? `Establishing the connection… (${connectionState})` : "Accepted — establishing the connection…"}
+      <div className="grid flex-1 grid-cols-1 md:grid-cols-[1.1fr_1px_1fr]">
+        <section className="flex flex-col justify-center gap-9 py-14 md:pr-12">
+          <div className="max-w-[42ch]">
+            <h1 className="font-display text-[40px] font-extrabold leading-[1.05] tracking-[-0.035em] text-ink text-pretty">
+              Connect to a host
+            </h1>
+            <p className="mt-4 text-[15px] leading-relaxed text-ink-body text-pretty">
+              Enter the 9-digit code shown on the machine you want to reach. Nothing installs on this
+              side — the code opens a direct, encrypted connection once the host owner accepts.
+            </p>
           </div>
-        )}
-      </section>
+          <PairingDiagram live={live} />
+        </section>
+
+        <div className="hidden bg-hairline md:block" aria-hidden />
+
+        <section className="flex flex-col justify-center py-14 md:pl-12">
+          <div className="w-full max-w-[500px] overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_1px_2px_rgba(11,14,20,.05)]">
+            <div className="brand-edge" aria-hidden />
+            <div className="px-6 py-7">
+              {screen === "A1" || screen === "A1-submitting" ? (
+                <A1PairingScreen
+                  code={code}
+                  onChange={setCode}
+                  onConnect={handleConnect}
+                  submitting={screen === "A1-submitting"}
+                  error={error}
+                  notice={notice}
+                />
+              ) : screen === "A2" ? (
+                <A2WaitingScreen onCancel={handleCancel} />
+              ) : (
+                // A3 (Connecting) — once hasRemoteStream flips true above, this
+                // branch is bypassed entirely by the early return.
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center gap-3.5">
+                    <span className="signal-pulse block h-3 w-3 shrink-0 rounded-full bg-success" aria-hidden />
+                    <span className="text-[17px] font-semibold tracking-[-0.02em] text-ink">
+                      Accepted — establishing the connection…
+                    </span>
+                  </div>
+                  <p className="pl-[26px] font-mono text-[11px] uppercase tracking-[0.12em] text-ink-faint">
+                    {connectionState ? `ICE state: ${connectionState}` : "Peer-to-peer handshake"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer className="flex justify-between gap-4 border-t border-hairline pt-5">
+        <span className="mono-label tracking-[0.14em]">No account, no install</span>
+        <span className="mono-label tracking-[0.14em]">Powered by DIV &lt;/&gt;</span>
+      </footer>
     </main>
   );
 }
@@ -492,20 +523,26 @@ function PairingDiagram({ live }: { live: boolean }) {
 
   return (
     <svg viewBox="0 0 340 90" className="w-full max-w-[360px]" aria-hidden>
-      <text x="0" y="20" className="fill-ink-muted font-mono text-[11px]">this browser</text>
-      <circle cx="8" cy="45" r="5" className="fill-ink-muted" />
+      <defs>
+        <linearGradient id="divGradient" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#FF0055" />
+          <stop offset="100%" stopColor="#FFA400" />
+        </linearGradient>
+      </defs>
+      <text x="0" y="20" className="fill-ink-faint font-mono text-[11px] uppercase tracking-[0.1em]">this browser</text>
+      <circle cx="8" cy="45" r="5" className="fill-ink-faint" />
       {leftDots.map((d, i) => (
         <circle key={`left-${i}`} cx={d.cx} cy={d.cy} r="1.3" className="fill-hairline" />
       ))}
 
-      <circle cx="170" cy="45" r="9" className={live ? "fill-signal signal-pulse" : "fill-ink-muted"} />
-      <text x="145" y="70" className="fill-ink-muted font-mono text-[11px]">code</text>
+      <circle cx="170" cy="45" r="9" fill="url(#divGradient)" className={live ? "signal-pulse" : undefined} style={{ transformOrigin: "170px 45px" }} />
+      <text x="152" y="70" className="fill-ink-faint font-mono text-[11px] uppercase tracking-[0.1em]">code</text>
 
       {rightDots.map((d, i) => (
         <circle key={`right-${i}`} cx={d.cx} cy={d.cy} r="1.3" className="fill-hairline" />
       ))}
-      <circle cx="332" cy="45" r="5" className="fill-ink-muted" />
-      <text x="230" y="20" className="fill-ink-muted font-mono text-[11px]">their computer</text>
+      <circle cx="332" cy="45" r="5" className="fill-ink-faint" />
+      <text x="230" y="20" className="fill-ink-faint font-mono text-[11px] uppercase tracking-[0.1em]">their computer</text>
     </svg>
   );
 }

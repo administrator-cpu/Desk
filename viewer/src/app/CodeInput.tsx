@@ -1,99 +1,101 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
-const GROUPS = [3, 3, 3] as const;
-
+/**
+ * Nine boxes in 3-3-3. Same API as before (value is the raw digit string,
+ * onChange emits digits only) — only the presentation is brand-side.
+ * Paste fills all nine, arrows walk, Backspace on an empty box steps back.
+ *
+ * The three groups are a fixed 3-column grid and the boxes inside flex to
+ * the available width, so the row can never wrap into a ragged 6+3 no
+ * matter how narrow the card gets.
+ */
 export function CodeInput({
   value,
   onChange,
-  disabled,
-  autoFocus,
+  disabled = false,
+  autoFocus = false,
 }: {
-  value: string; // exactly 9 chars, digits or "" for empty slots
+  value: string;
   onChange: (next: string) => void;
   disabled?: boolean;
   autoFocus?: boolean;
 }) {
-  const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
+  const digits = value.replace(/\D/g, "").slice(0, 9).padEnd(9, " ").split("");
 
-  const digits = value.padEnd(9, " ").split("");
+  useEffect(() => {
+    if (autoFocus) inputs.current[0]?.focus();
+  }, [autoFocus]);
 
-  function setDigitAt(index: number, char: string) {
-    const next = digits.slice();
-    next[index] = char;
-    // Only strip trailing blanks so an interior clear (e.g. mid-code
-    // backspace) doesn't collapse the whole value.
-    onChange(next.join("").replace(/ +$/, ""));
+  function commit(next: string[]) {
+    onChange(next.join("").replace(/\s/g, ""));
   }
 
-  function focusIndex(index: number) {
-    const el = inputsRef.current[index];
-    if (el) el.focus();
+  function focusAt(i: number) {
+    const el = inputs.current[Math.min(8, Math.max(0, i))];
+    el?.focus();
+    el?.select();
   }
 
-  function handleChange(index: number, raw: string) {
-    const char = raw.replace(/\D/g, "").slice(-1);
-    if (!char) {
-      setDigitAt(index, " ");
-      return;
-    }
-    setDigitAt(index, char);
-    if (index < 8) focusIndex(index + 1);
+  function handleChange(i: number, raw: string) {
+    const digit = raw.replace(/\D/g, "").slice(-1);
+    const next = [...digits];
+    next[i] = digit || " ";
+    commit(next);
+    if (digit && i < 8) window.setTimeout(() => focusAt(i + 1), 0);
   }
 
-  function handleKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace") {
-      if (digits[index].trim() === "" && index > 0) {
-        focusIndex(index - 1);
-        setDigitAt(index - 1, " ");
-        e.preventDefault();
-      } else {
-        setDigitAt(index, " ");
-      }
-    } else if (e.key === "ArrowLeft" && index > 0) {
-      focusIndex(index - 1);
-    } else if (e.key === "ArrowRight" && index < 8) {
-      focusIndex(index + 1);
+  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && digits[i].trim() === "" && i > 0) {
+      e.preventDefault();
+      const next = [...digits];
+      next[i - 1] = " ";
+      commit(next);
+      window.setTimeout(() => focusAt(i - 1), 0);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      focusAt(i - 1);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      focusAt(i + 1);
     }
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
-    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 9);
-    if (!text) return;
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 9);
+    if (!pasted) return;
     e.preventDefault();
-    onChange(text);
-    focusIndex(Math.min(text.length, 8));
+    const next = pasted.padEnd(9, " ").split("");
+    commit(next);
+    window.setTimeout(() => focusAt(pasted.length), 0);
   }
 
-  let flatIndex = -1;
-
   return (
-    <div className="flex items-center gap-3" role="group" aria-label="9-digit pairing code">
-      {GROUPS.map((groupSize, groupIdx) => (
-        <div key={groupIdx} className="flex gap-1.5">
-          {Array.from({ length: groupSize }).map(() => {
-            flatIndex += 1;
-            const i = flatIndex;
-            const char = digits[i].trim();
+    <div className="grid w-full grid-cols-3 gap-3">
+      {[0, 1, 2].map((group) => (
+        <div key={group} className="grid grid-cols-3 gap-1.5">
+          {[0, 1, 2].map((slot) => {
+            const i = group * 3 + slot;
             return (
               <input
                 key={i}
                 ref={(el) => {
-                  inputsRef.current[i] = el;
+                  inputs.current[i] = el;
                 }}
+                type="text"
                 inputMode="numeric"
-                pattern="[0-9]*"
                 maxLength={1}
-                autoFocus={autoFocus && i === 0}
+                aria-label={`Code digit ${i + 1}`}
                 disabled={disabled}
-                value={char}
+                value={digits[i].trim()}
                 onChange={(e) => handleChange(i, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(i, e)}
                 onPaste={handlePaste}
-                onFocus={(e) => e.target.select()}
-                aria-label={`Digit ${i + 1} of 9`}
-                className="h-14 w-9 rounded-none border-b-2 border-hairline bg-transparent text-center font-mono text-2xl text-ink outline-none transition-colors focus:border-signal disabled:opacity-40 sm:w-10"
+                onFocus={(e) => e.currentTarget.select()}
+                className="h-13 min-w-0 rounded-[10px] border border-hairline bg-surface p-0 text-center font-mono text-[20px] text-ink caret-signal outline-none transition-[border-color,box-shadow] hover:border-ink-faint focus:border-signal focus:shadow-[0_0_0_3px_rgba(255,0,85,.12)] disabled:bg-canvas disabled:text-ink-faint"
+                style={{ height: 52 }}
               />
             );
           })}
